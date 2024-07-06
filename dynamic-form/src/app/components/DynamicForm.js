@@ -39,6 +39,32 @@ const DynamicForm = ({ formConfig }) => {
     }
   };
 
+  const resetControlValues = (control, setFieldValue, parentControlName = '') => {
+    const controlName = parentControlName ? `${parentControlName}.${control.controlName}` : control.controlName;
+
+    if (control.type === 'checkbox-group') {
+      control.options.forEach((option, index) => {
+        setFieldValue(`${controlName}[${index}].checked`, false);
+        setFieldValue(`${controlName}[${index}].input`, '');
+        if (option.children) {
+          option.children.forEach(child => resetControlValues(child, setFieldValue, `${controlName}[${index}]`));
+        }
+      });
+    } else if (control.type === 'checkbox-input') {
+      setFieldValue(`${controlName}.isChecked`, false);
+      setFieldValue(`${controlName}.inputText`, '');
+    } else if (control.type === 'input') {
+      setFieldValue(controlName, '');
+    } else if (control.type === 'radio-group') {
+      setFieldValue(`${controlName}.selected`, '');
+      control.options.forEach(option => {
+        if (option.type === 'input') {
+          setFieldValue(`${controlName}.inputs.${option.controlName}`, '');
+        }
+      });
+    }
+  };
+
   const initialValues = React.useMemo(() => {
     return formConfig.steps.reduce((acc, step) => {
       step.controls.forEach(control => {
@@ -53,7 +79,7 @@ const DynamicForm = ({ formConfig }) => {
     // Add your validation schema here
   });
 
-  const renderControl = (control, values, parentControlName = '', level = 0, parentChecked = true) => {
+  const renderControl = (control, values, setFieldValue, parentControlName = '', level = 0, parentChecked = true) => {
     const controlName = parentControlName ? `${parentControlName}.${control.controlName}` : control.controlName;
     const paddingLeft = level > 0 ? `${level * 20}px` : '0px';
     const isDisabled = !parentChecked;
@@ -73,6 +99,16 @@ const DynamicForm = ({ formConfig }) => {
                         name={`${controlName}[${index}].checked`}
                         className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
                         disabled={isDisabled}
+                        onChange={(e) => {
+                          const isChecked = e.target.checked;
+                          setFieldValue(`${controlName}[${index}].checked`, isChecked);
+                          if (!isChecked) {
+                            option.children?.forEach(child => resetControlValues(child, setFieldValue, `${controlName}[${index}]`));
+                            if (option.type === 'input') {
+                              setFieldValue(`${controlName}[${index}].input`, '');
+                            }
+                          }
+                        }}
                       />
                       <label className="ml-2 text-sm text-gray-900">
                         {option.label || option.value}
@@ -89,7 +125,7 @@ const DynamicForm = ({ formConfig }) => {
                     )}
                     {option.children && option.children.length > 0 && (
                       <div className="ml-6 mt-2">
-                        {option.children.map(child => renderControl(child, values[control.controlName][index], `${controlName}[${index}]`, level + 1, values[control.controlName][index].checked))}
+                        {option.children.map(child => renderControl(child, values[control.controlName][index], setFieldValue, `${controlName}[${index}]`, level + 1, values[control.controlName][index].checked))}
                       </div>
                     )}
                   </div>
@@ -115,6 +151,15 @@ const DynamicForm = ({ formConfig }) => {
                     value={option.value}
                     className="h-4 w-4 text-indigo-600 border-gray-300"
                     disabled={isDisabled}
+                    onChange={(e) => {
+                      const isSelected = e.target.checked;
+                      setFieldValue(`${controlName}.selected`, isSelected ? option.value : '');
+                      if (!isSelected) {
+                        if (option.type === 'input') {
+                          setFieldValue(`${controlName}.inputs.${option.controlName}`, '');
+                        }
+                      }
+                    }}
                   />
                   <label className="ml-2 text-sm text-gray-900">{option.label || option.value}</label>
                 </div>
@@ -143,6 +188,13 @@ const DynamicForm = ({ formConfig }) => {
               name={`${controlName}.isChecked`}
               className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
               disabled={isDisabled}
+              onChange={(e) => {
+                const isChecked = e.target.checked;
+                setFieldValue(`${controlName}.isChecked`, isChecked);
+                if (!isChecked) {
+                  setFieldValue(`${controlName}.inputText`, '');
+                }
+              }}
             />
             <label className="ml-2 text-sm text-gray-900">{control.label}</label>
           </div>
@@ -183,12 +235,12 @@ const DynamicForm = ({ formConfig }) => {
         console.log(JSON.stringify(values, null, 2));
       }}
     >
-      {({ values }) => (
+      {({ values, setFieldValue }) => (
         <Form className="space-y-4">
           {formConfig.steps.map((step, stepIndex) => (
             <div key={stepIndex} className="border-b-2 pb-4 mb-4">
               <h2 className="text-lg font-medium text-gray-900">{step.label}</h2>
-              {step.controls.map((control, controlIndex) => renderControl(control, values))}
+              {step.controls.map((control, controlIndex) => renderControl(control, values, setFieldValue))}
             </div>
           ))}
           <button

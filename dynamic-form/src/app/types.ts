@@ -2,7 +2,6 @@
 
 // type.ts
 
-
 export interface FormOption {
   label: string;
   value: string;
