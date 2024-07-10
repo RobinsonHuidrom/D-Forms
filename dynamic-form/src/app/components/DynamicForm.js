@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FieldArray, Field, Formik, Form } from 'formik';
 import * as Yup from 'yup';
 
@@ -14,6 +14,9 @@ const TextInput = ({ name, placeholder, disabled }) => (
 );
 
 const DynamicForm = ({ formConfig }) => {
+  const [isPreview, setIsPreview] = useState(false);
+  const [formValues, setFormValues] = useState(null);
+
   const initializeControlValues = (control, acc) => {
     if (control.type === 'checkbox-group') {
       acc[control.controlName] = control.options.map(option => {
@@ -74,10 +77,109 @@ const DynamicForm = ({ formConfig }) => {
     }, {});
   }, [formConfig]);
 
-  // Example Yup validation schema (update as needed)
   const validationSchema = Yup.object().shape({
     // Add your validation schema here
   });
+
+  const filterFormData = (values, formConfig) => {
+    const filteredData = {};
+
+    const recursiveFilter = (data, controls) => {
+      const result = {};
+
+      controls.forEach(control => {
+        if (control.type === 'checkbox-group') {
+          const selectedOptions = data[control.controlName]
+            .map((option, index) => {
+              const optionConfig = control.options[index];
+              if (option.checked || option.isChecked || option.selected || option.inputText || option.input) {
+                const filteredOption = {
+                  label: optionConfig.label,
+                  value: optionConfig.value,
+                };
+                if (optionConfig.children && optionConfig.children.length > 0) {
+                  const filteredChildren = recursiveFilter(option, optionConfig.children);
+                  if (Object.keys(filteredChildren).length > 0) {
+                    filteredOption.children = filteredChildren;
+                  }
+                }
+                if (option.input) {
+                  filteredOption.input = option.input;
+                }
+                if (option.inputText) {
+                  filteredOption.inputText = option.inputText;
+                }
+                return filteredOption;
+              }
+              return null;
+            })
+            .filter(item => item !== null);
+          if (selectedOptions.length > 0) {
+            result[control.controlName] = selectedOptions;
+          }
+        } else if (control.type === 'radio-group') {
+          if (data[control.controlName].selected) {
+            result[control.controlName] = {
+              label: control.label,
+              value: data[control.controlName].selected,
+              inputs: data[control.controlName].inputs
+            };
+          }
+        } else if (control.type === 'checkbox-input') {
+          if (data[control.controlName].isChecked) {
+            result[control.controlName] = {
+              label: control.label,
+              value: data[control.controlName].inputText
+            };
+          }
+        } else if (control.type === 'input') {
+          if (data[control.controlName]) {
+            result[control.controlName] = {
+              label: control.label,
+              value: data[control.controlName]
+            };
+          }
+        }
+      });
+
+      return result;
+    };
+
+    formConfig.steps.forEach(step => {
+      const filteredStepData = recursiveFilter(values, step.controls);
+      if (Object.keys(filteredStepData).length > 0) {
+        filteredData[step.label] = filteredStepData;
+      }
+    });
+
+    return filteredData;
+  };
+
+  const handlePreview = (values) => {
+    const filteredData = filterFormData(values, formConfig);
+    setFormValues(filteredData);
+    setIsPreview(true);
+  };
+
+  const handleFinalSubmit = async () => {
+    try {
+      const response = await fetch('http://localhost:3000/api/saveFormData', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ formId: formConfig.formId, data: formValues }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to save form data');
+      }
+      alert('Form data saved successfully!');
+      setIsPreview(false);
+    } catch (error) {
+      console.error(error);
+      alert('An error occurred while saving the form data');
+    }
+  };
 
   const renderControl = (control, values, setFieldValue, parentControlName = '', level = 0, parentChecked = true) => {
     const controlName = parentControlName ? `${parentControlName}.${control.controlName}` : control.controlName;
@@ -231,25 +333,42 @@ const DynamicForm = ({ formConfig }) => {
     <Formik
       initialValues={initialValues}
       validationSchema={validationSchema}
-      onSubmit={(values) => {
-        console.log(JSON.stringify(values, null, 2));
-      }}
+      onSubmit={handlePreview}
     >
       {({ values, setFieldValue }) => (
-        <Form className="space-y-4">
-          {formConfig.steps.map((step, stepIndex) => (
-            <div key={stepIndex} className="border-b-2 pb-4 mb-4">
-              <h2 className="text-lg font-medium text-gray-900">{step.label}</h2>
-              {step.controls.map((control, controlIndex) => renderControl(control, values, setFieldValue))}
-            </div>
-          ))}
-          <button
-            type="submit"
-            className="mt-2 w-full inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-          >
-            Submit
-          </button>
-        </Form>
+        !isPreview ? (
+          <Form className="space-y-4">
+            {formConfig.steps.map((step, stepIndex) => (
+              <div key={stepIndex} className="border-b-2 pb-4 mb-4">
+                <h2 className="text-lg font-medium text-gray-900">{step.label}</h2>
+                {step.controls.map((control, controlIndex) => renderControl(control, values, setFieldValue))}
+              </div>
+            ))}
+            <button
+              type="submit"
+              className="mt-2 w-full inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              Preview
+            </button>
+          </Form>
+        ) : (
+          <div className="space-y-4">
+            <h2 className="text-lg font-medium text-gray-900">Preview</h2>
+            <pre className="bg-gray-100 p-4 rounded">{JSON.stringify(formValues, null, 2)}</pre>
+            <button
+              onClick={() => setIsPreview(false)}
+              className="mt-2 w-full inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+            >
+              Edit
+            </button>
+            <button
+              onClick={handleFinalSubmit}
+              className="mt-2 w-full inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              Submit
+            </button>
+          </div>
+        )
       )}
     </Formik>
   );
